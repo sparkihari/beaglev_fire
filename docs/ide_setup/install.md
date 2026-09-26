@@ -1,6 +1,6 @@
 # Install and Set Up Libero SoC 2026.1
 
-A quick guide to installing Libero SoC, SoftConsole, and the FlexLM license server.
+A quick guide to installing Libero SoC, SoftConsole, and the license server.
 
 ---
 
@@ -41,24 +41,27 @@ sudo ./Microchip-SoftConsole-v2022.2-RISC-V-747-linux-x64-installer.run
 
 ## 3. Set Up the License
 
-Create a license directory:
+Create a license directory under /usr/local/microchip:
 
 ```bash
-mkdir -p ~/flexlm
+sudo mkdir -p /usr/local/microchip/License
 ```
 
 Copy the generated license file into it:
 
 ```bash
-sudo cp \
-/usr/local/microchip/Libero_SoC_2026.1/license/License.dat \
-~/flexlm/
+sudo cp /home/<username>/Downloads/License.dat /usr/local/microchip/License/
 ```
 
-Verify that the file is in place:
-
+Create a log file for the license server:
 ```bash
-ls -l ~/flexlm/License.dat
+sudo touch /usr/local/microchip/License/license.log
+```
+
+Make the license readable by everyone but writable only by root:
+```bash
+sudo chmod 644 /usr/local/microchip/License/License.dat
+sudo chmod 755 /usr/local/microchip/License
 ```
 
 ---
@@ -73,7 +76,7 @@ hostname
 
 The hostname in the license file must match the hostname of this machine.
 
-Next, open `~/flexlm/License.dat` and make sure the `SERVER` line contains your hostname and MAC ID, and that the daemon paths point to your installation:
+Next, open `/usr/local/microchip/License/License.dat` and make sure the `SERVER` line contains your hostname and MAC ID, and that the daemon paths point to your installation:
 
 ```text
 SERVER <hostname> <MAC_ID> 1702
@@ -84,51 +87,76 @@ VENDOR snpslmd /usr/local/microchip/Libero_SoC_2026.1/Libero_SoC/Designer/bin64/
 
 ---
 
-## 5. Start FlexLM
+## 5. Tool Environment Variables Setup
 
-Start the license server:
+Create a tool setup folder and script for the environment variables under /usr/local/microchip:
 
 ```bash
-/usr/local/microchip/Libero_SoC_2026.1/Libero_SoC/Designer/bin64/lmgrd \
--c ~/flexlm/License.dat \
--log /tmp/lmgrd.log &
+sudo mkdir -p /usr/local/microchip/Setup
+sudo nano /usr/local/microchip/Setup/setup-microchip-tools.sh
 ```
 
-Check that it is running:
+Add the following lines:
 
 ```bash
-ps -ef | grep -E 'lmgrd|actlmgrd' | grep -v grep
-```
+#!/bin/bash
 
-Check the log:
+#===============================================================================
+#   - SoftConsole (SC_INSTALL_DIR)
+#   - Libero (LIBERO_INSTALL_DIR)
+#   - Licensing daemon for Libero (LICENSE_DAEMON_DIR)
+#===============================================================================
+export SC_INSTALL_DIR=/usr/local/microchip/SoftConsole-v2022.2-RISC-V-747
+export LIBERO_INSTALL_DIR=/usr/local/microchip/Libero_SoC_2026.1/Libero_SoC
+export LICENSE_DAEMON_DIR=/usr/local/microchip/Libero_SoC_2026.1/LicenseDaemons
+export LICENSE_FILE_DIR=/usr/local/microchip/License
 
-```bash
-cat /tmp/lmgrd.log
-```
+#
+# SoftConsole
+#
+export PATH=$PATH:$SC_INSTALL_DIR/riscv-unknown-elf-gcc/bin
+export FPGENPROG=$LIBERO_INSTALL_DIR/Designer/bin64/fpgenprog
 
-To monitor the log live:
+#
+# Libero
+#
+export PATH=$PATH:$LIBERO_INSTALL_DIR/Designer/bin:$LIBERO_INSTALL_DIR/Designer/bin64
+export PATH=$PATH:$LIBERO_INSTALL_DIR/Synplify/bin
+export PATH=$PATH:$LIBERO_INSTALL_DIR/ModelSim_Pro/linuxacoem
+export LOCALE=C
+export LD_LIBRARY_PATH=/usr/lib/i386-linux-gnu:$LD_LIBRARY_PATH
 
-```bash
-tail -f /tmp/lmgrd.log
-```
-
----
-
-## 6. Configure the Environment (`~/.bashrc`)
-
-Add the following lines to the end of `~/.bashrc`. They point the licensing variables at the local FlexLM server, set the library and locale paths, and add Libero to your `PATH`:
-
-```bash
-# Libero SoC licensing
+#
+# Libero License daemon
+#
 export LM_LICENSE_FILE=1702@<hostname>
 export SNPSLMD_LICENSE_FILE=1702@<hostname>
 
-# Libraries and locale
-export LD_LIBRARY_PATH=/usr/lib/i386-linux-gnu/:/usr/lib/x86_64-linux-gnu/:/usr/lib/:/usr/local/lib/
-export LANG=en_US.UTF-8
+pgrep -x lmgrd >/dev/null || $LICENSE_DAEMON_DIR/lmgrd -c $LICENSE_FILE_DIR/License.dat -l $LICENSE_FILE_DIR/license.log
+```
 
-# Libero SoC executables
-export PATH=/usr/local/microchip/Libero_SoC_2026.1/Libero_SoC/Designer/bin64:${PATH}
+> **Note:** Since this script is sourced from `~/.bashrc`, the `pgrep` check above prevents a new `lmgrd` process from being launched every time you open a terminal.
+
+---
+
+## 6. Configure the Setup tools script in the Environment (`~/.bashrc`)
+
+Open the file:
+
+```bash
+nano ~/.bashrc
+```
+
+Add the following lines to the end of `~/.bashrc`:
+
+```bash
+#
+# Libero Tool Setup Script 
+#
+if [ -f "/usr/local/microchip/Setup/setup-microchip-tools.sh" ]; then
+ . "/usr/local/microchip/Setup/setup-microchip-tools.sh"
+fi
+
 ```
 
 Reload the file so the changes take effect in the current terminal:
@@ -137,11 +165,10 @@ Reload the file so the changes take effect in the current terminal:
 source ~/.bashrc
 ```
 
-Verify the license variables:
+Verify the environment variables:
 
 ```bash
-echo $LM_LICENSE_FILE
-echo $SNPSLMD_LICENSE_FILE
+echo "$PATH"
 ```
 
 ---
@@ -152,10 +179,20 @@ echo $SNPSLMD_LICENSE_FILE
 libero
 ```
 
-If the `libero` command is not found, run it with the full path:
 
-```bash
-/usr/local/microchip/Libero_SoC_2026.1/Libero_SoC/Designer/bin64/libero
+---
+
+## Recommended Directory Structure
+
+```text
+/usr/local/microchip/
+├── Libero_SoC_2026.1/
+├── SoftConsole-v2022.2-RISC-V-747/
+├── License/
+│   ├── License.dat
+│   └── license.log
+└── Setup/
+    └── setup-microchip-tools.sh
 ```
 
 ---
@@ -193,41 +230,9 @@ sudo update-ca-certificates
 ```bash
 curl -I https://www.microchip.com
 ```
-
-### Check listening ports
-
-```bash
-ss -lntp
-```
-
-### Check the Libero process
-
-```bash
-ps -ef | grep libero
-```
-
-### Ensure the /usr/tmp folder exists and is accessible
-
-```bash
-sudo mkdir -p /usr/tmp
-sudo chmod 1777 /usr/tmp
-```
-
 ---
 
 ## Quick Troubleshooting
-
-### License problem
-
-Run the following commands and review the output:
-
-```bash
-hostname
-ls -l ~/flexlm/License.dat
-ps -ef | grep -E 'lmgrd|actlmgrd'
-cat /tmp/lmgrd.log
-echo $LM_LICENSE_FILE
-```
 
 ### Certificate or download error
 
@@ -251,37 +256,4 @@ Then verify the certificate file and environment:
 ls -l /etc/ssl/certs/ca-certificates.crt
 env | grep -iE 'ssl|cert|curl'
 ```
-
 ---
-
-## Recommended Directory Structure
-
-```text
-/usr/local/microchip/
-└── Libero_SoC_2026.1/
-
-~/flexlm/
-└── License.dat
-```
-
-Keep **projects and license files outside the Libero installation directory**.
-
----
-
-## Daily Startup
-
-Once everything is set up, these are usually the only commands you need:
-
-```bash
-# Start the license server
-/usr/local/microchip/Libero_SoC_2026.1/Libero_SoC/Designer/bin64/lmgrd \
--c ~/flexlm/License.dat \
--log /tmp/lmgrd.log &
-
-# Launch Libero
-libero
-```
-
-### Useful tip
-
-If Libero reports a license problem, **check `/tmp/lmgrd.log` first**. It usually contains the most useful information about a FlexLM failure.
